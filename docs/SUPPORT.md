@@ -1,6 +1,6 @@
 # 支持范围与已知限制
 
-本项目目前是个人维护、从源码构建的 macOS 小工具。以下区分“代码具备此能力”和“已实际验证”，不承诺所有系统、套餐或后续上游版本都兼容。
+新增 Windows / Python 3.12 / Qt Acrylic 无标题栏界面，启动与已验证范围见 [Windows 适配](WINDOWS.md)。贡献者报告已在 Windows 实机读取额度和重置卡；维护者没有 Windows 实机，依赖 Windows CI 的离线与原生窗口冒烟；暂无托盘与 Codex 更新提示。以下原版兼容矩阵和原生界面细节适用于 macOS。
 
 ## 环境兼容性
 
@@ -15,7 +15,7 @@
 | 版本检测 | `/Applications/Codex.app` 与 `/Applications/ChatGPT.app` 中的有效 Codex 稳定版 | 优先最高构建号；不递归扫描、不开启自定义安装位置，不提示 beta |
 | 发布形式 | 源码下载、在本机编译 | 没有已验证的通用二进制安装包、签名、公证、Homebrew 或 App Store 分发 |
 
-GitHub Actions 配置了 macOS / Python 3.12 离线检查，但在仓库首次实际运行前，只能视为待验证配置。其他操作系统可以运行部分纯 Python 测试，不代表支持桌面应用。
+GitHub Actions 执行 Windows / Python 3.12 的 Qt 回归与原生窗口冒烟，以及 macOS / Python 3.12 离线检查和构建。CI 不测试真实账号，也不证明原生 Acrylic 材质、长期驻留、不同 DPI 或多显示器表现。Linux 桌面未支持。
 
 ## 功能边界
 
@@ -49,4 +49,4 @@ GitHub Actions 配置了 macOS / Python 3.12 离线检查，但在仓库首次�
 
 目前维护当前源码；没有长期支持分支或响应时限承诺。已验证的离线检查与实机手动检查应分开记录，见 [开发说明](DEVELOPMENT.md)。真实注销/重启、实际账号切换、安装新 Codex、Apple Silicon、长时间睡眠、多显示器切换和 VoiceOver 尚未完成系统性验证。
 
-如当前环境不满足支持条件，请先阅读 [README 故障排查](../README.md#常见问题)，再使用脱敏后的最小复现提交 Issue。
+如当前环境不满足支持条件，请先阅读 [README 故障排查](../README.zh-CN.md#常见问题)，再使用脱敏后的最小复现提交 Issue。

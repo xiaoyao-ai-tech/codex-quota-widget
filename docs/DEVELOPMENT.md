@@ -1,9 +1,14 @@
 # 开发与项目结构
 
+Windows 入口为 `windows_widget.py` / `start-windows.ps1`，默认使用 `windows_glass.py` 的 Qt / Acrylic 界面，保留 `--classic` Tk 入口，均复用原版 Python 额度模块。Qt 依赖见 `requirements-windows.txt`。Windows 开发、启动及差异见 [Windows 适配](WINDOWS.md)；下文 Cocoa 与 Swift 检查适用于 macOS。额度读取 CLI 新增可选 `--home` 参数显式传入登录目录。
+
 ## 目录与职责
 
 ```text
 QuotaWidget.swift       Cocoa 界面、定时器、展示计算、读取进程管理与离线自检
+windows_runtime.py      Windows 状态目录、单实例与有界子进程读取
+windows_widget.py       Windows 入口、展示计算和可选 Tk 界面
+windows_glass.py        Windows Qt / Acrylic 界面
 quota.py                默认登录读取、固定额度 GET、字段归一化、账号缓存隔离
 updates.py              安装检测、官方 appcast 读取、稳定版本比较与版本缓存
 build.py                使用当前 Python 调用 swiftc，组装本机 .app
@@ -13,7 +18,7 @@ tests/                  合成数据与临时文件/进程测试
 docs/                   支持矩阵、开发/发布/上传说明、虚构数据截图
 ```
 
-项目没有第三方 Python 依赖，不需要 `requirements.txt`；不是可供 pip 安装的 Python 包，也不是 Swift Package，因此不添加无实际用途的 `pyproject.toml` 或 `Package.swift`。
+macOS 入口没有第三方 Python 依赖；Windows 默认 Qt 界面需要 `requirements-windows.txt`，`--classic` 入口只用标准库。项目不是可供 pip 安装的 Python 包，也不是 Swift Package。
 
 ## 数据流
 
@@ -62,7 +67,7 @@ python3 scripts/package_source.py --check
 | `python3 scripts/package_source.py --check` | 验证公开清单和安全路径，只打印文件名 |
 | `python3 scripts/package_source.py` | 生成 `.build/codex-quota-widget-source.zip` |
 
-桌面应用使用 `~/Library/Application Support/CodexQuotaWidget/` 中的同名缓存。表中 CLI 命令显式传入文件路径，仍写到调用者指定的位置；这与桌面应用的默认存储分开。旧源码缓存不自动迁移。
+macOS 桌面应用使用 `~/Library/Application Support/CodexQuotaWidget/` 中的同名缓存。表中 CLI 命令显式传入文件路径，仍写到调用者指定的位置；这与桌面应用的默认存储分开。旧源码缓存不自动迁移。
 
 两个读取 CLI 为了让 GUI 始终能解析诊断，失败时也可能以退出码 0 输出带 `error` 的 JSON；不能仅凭进程退出码判断官方读取成功。直接运行它们会显示真实数据，请勿把输出粘贴到公开 Issue。源码包导出仅检查清单与文件路径，不扫描任意内容或 Git 历史。
 
@@ -73,3 +78,5 @@ python3 scripts/package_source.py --check
 - 使用真实服务的验证需另行进行；CI 不使用账号，不配置 Codex Secrets，不会证明内部服务始终兼容。
 
 目前本地完成的检查及尚未验证的平台见 [支持范围](SUPPORT.md)。发布流程见 [RELEASING.md](RELEASING.md)。
+
+Windows 测试安装 `requirements-windows.txt` 后运行同一 Python 测试命令。测试使用合成身份、临时目录与真实可丢弃子进程；Qt 测试使用 offscreen 平台，命名锁与 Tk 窗口测试仅在 Windows 执行。`python scripts/windows_preview.py` 另外执行原生窗口烟测并生成虚构截图；本机没有 Windows 时，以仓库 Actions 的 Windows 结果为依据，不能声称完成实机视觉验收。Windows 入口不运行 macOS 版本模块。
