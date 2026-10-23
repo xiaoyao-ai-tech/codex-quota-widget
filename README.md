@@ -45,7 +45,7 @@ open .build/Codex额度悬浮窗.app
 
 构建包位于 `.build/Codex额度悬浮窗.app`。也可在 Finder 按 `Command + Shift + G`，输入源码目录中的 `.build` 路径，再双击应用。
 
-**请保持源码目录及 Python 环境的位置不变。** 当前构建会绑定本机解释器和源码目录中的缓存路径；移动源码、删除 Python 环境后需要重新构建。生成的 `.app` 不是适合直接发给其他人的通用安装包，也尚未做开发者签名和公证。首次运行遇到系统拦截时请遵循 macOS 的安全提示，不需要全局关闭安全保护。
+**Python 环境的位置仍需保持不变。** 应用在运行时使用当前用户的 `~/Library/Application Support/CodexQuotaWidget/` 存放缓存，不再绑定源码目录；可以移动已构建的 `.app`。构建仍绑定本机 Python 解释器，如果删除或移动该环境（包括放在源码目录内的虚拟环境），需要重新构建。生成的 `.app` 不是适合直接发给其他人的通用安装包，也尚未做开发者签名和公证。首次运行遇到系统拦截时请遵循 macOS 的安全提示，不需要全局关闭安全保护。
 
 启动后可通过窗口按钮操作，或点击菜单栏的额度仪表图标恢复隐藏窗口、刷新、切换配色。隐藏不影响后台刷新；从菜单或窗口点击退出会停止定时器并回收读取进程。项目不会自动安装登录启动项。
 
@@ -64,7 +64,7 @@ open .build/Codex额度悬浮窗.app
 
 更新源码前先退出旧应用，在原目录更新源码并重新构建，再启动新应用；不要同时运行多个副本。只更新源码不会自动替换应用包内的 Python 文件。
 
-卸载时先从菜单或窗口退出，再删除本工具的 `.app`、源码目录及其中的两个缓存即可。配色/窗口偏好存于 macOS 用户偏好中，可按需单独清除；不要删除 Codex 的 `~/.codex` 登录目录。若曾自行设置登录启动，请同时在系统设置中移除对应启动项。
+卸载时先从菜单或窗口退出，再删除本工具的 `.app`；按需删除源码目录和 `~/Library/Application Support/CodexQuotaWidget/` 中的两个缓存。配色/窗口偏好存于 macOS 用户偏好中，可按需单独清除；不要删除 Codex 的 `~/.codex` 登录目录。若曾自行设置登录启动，请同时在系统设置中移除对应启动项。
 
 ## 数据与隐私
 
@@ -76,7 +76,7 @@ open .build/Codex额度悬浮窗.app
 - 缓存只存额度、时间、状态和账号摘要等必要信息。摘要仍属于账号关联信息，不应公开。
 - 不向项目作者发送遥测或使用数据。
 
-`usage.local.json`、`version.local.json` 和 `.build/` 都是本地文件，已加入 Git 忽略规则。请不要上传整个工作目录或真实账号截图。
+桌面应用的 `usage.local.json` 和 `version.local.json` 位于 `~/Library/Application Support/CodexQuotaWidget/`，新建目录权限为 0700、缓存文件为 0600。源码目录中的旧缓存会原样保留但不自动导入；升级后首次使用需联网刷新。旧 `*.local.json` 和 `.build/` 仍由 Git 忽略，CLI 手工指定的缓存路径不变。请不要上传真实缓存或账号截图。
 
 ## 开发与验证
 
@@ -84,10 +84,11 @@ open .build/Codex额度悬浮窗.app
 python3 -m unittest discover -s tests -v
 python3 build.py
 .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-guidance
+.build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-cache
 .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-reader "$(command -v python3)"
 ```
 
-Python 用例使用模拟响应和临时文件；两种 Swift 检查模式仅执行计算或可丢弃子进程，不访问真实账号或接口。GitHub Actions 已配置相同的离线检查与 macOS 编译，首次上传后可查看运行结果。
+Python 用例使用模拟响应和临时文件；Swift 检查模式仅执行计算、临时目录读写或可丢弃子进程，不访问真实账号或接口。GitHub Actions 已配置相同的离线检查与 macOS 编译，首次上传后可查看运行结果。
 
 项目结构、构建选项、CLI 语义和手工验证见 [开发说明](docs/DEVELOPMENT.md)。
 
@@ -124,6 +125,6 @@ python3 scripts/package_source.py
 
 欢迎提交问题和改进，见 [贡献指南](CONTRIBUTING.md)；安全问题见 [SECURITY.md](SECURITY.md)。
 
-当前仍为首次公开发布前的源码准备状态，尚未发布正式 GitHub Release。更新记录见 [CHANGELOG.md](CHANGELOG.md)，维护者发布前请按 [发布检查](docs/RELEASING.md) 核对。
+当前已公开源码，尚未发布正式 GitHub Release。更新记录见 [CHANGELOG.md](CHANGELOG.md)，维护者发布前请按 [发布检查](docs/RELEASING.md) 核对。
 
 本项目采用 [MIT 许可证](LICENSE)，允许使用、修改、分发和商用，需保留版权和许可声明。许可证仅覆盖本项目代码，不授予第三方产品商标或服务访问权限。

@@ -38,7 +38,7 @@ def main():
         plistlib.dump({"CFBundleExecutable": "CodexQuotaWidget", "CFBundleIdentifier": "local.ycwang.codex-quota-widget",
                       "CFBundleName": "Codex额度悬浮窗", "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0",
                       "CFBundlePackageType": "APPL", "LSUIElement": True, "NSHighResolutionCapable": True,
-                      "QuotaPython": sys.executable, "QuotaCache": str(root / "usage.local.json")}, handle)
+                      "QuotaPython": sys.executable}, handle)
     print("构建成功：" + str(app))
 
 
