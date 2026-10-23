@@ -19,7 +19,7 @@ docs/                   支持矩阵、开发/发布/上传说明、虚构数据
 
 Cocoa 定时器或按钮 → 后台 `ReaderPool` 启动绑定的 Python → 读取并验证字段 → 私有 JSON 缓存及仅含展示字段的标准输出 → Swift 解码 → 主线程更新界面。
 
-两个读取模块各自去重、超时与回读缓存。额度刷新后再次校验账号；版本检查后再次校验安装构建号。受控退出后，进程池拒绝新任务并清理当前自有子进程。UI 不保存 token，也不直接执行 HTTP 请求。
+两个读取模块各自去重、超时与回读缓存。额度刷新后再次校验账号；版本检查后再次校验安装构建号。受控退出后，进程池拒绝新任务并清理当前自有子进程。UI 不保存 token，也不直接执行 HTTP 请求。缓存目录在运行时通过 `FileManager.applicationSupportDirectory` 定位到当前用户的 `CodexQuotaWidget` 子目录；构建不包含源码目录的缓存绝对路径。
 
 原生计算和进程检查位于 Swift 源码的检查模式中；Python 回归位于 `tests/`。该分工用于保持标准库和直接 `swiftc` 构建方式。
 
@@ -31,11 +31,12 @@ Cocoa 定时器或按钮 → 后台 `ReaderPool` 启动绑定的 Python → 读�
 python3 -m unittest discover -s tests -v
 python3 build.py --output .build/Development.app
 .build/Development.app/Contents/MacOS/CodexQuotaWidget --check-guidance
+.build/Development.app/Contents/MacOS/CodexQuotaWidget --check-cache
 .build/Development.app/Contents/MacOS/CodexQuotaWidget --check-reader "$(command -v python3)"
 python3 scripts/package_source.py --check
 ```
 
-`--check-guidance` 检查预算、临期、时效和极端倒计时；`--check-reader` 检查正常/异常输出、缺失解释器、超时强制回收、退出清理与拒绝后续任务。它们不会启动真实账号请求。
+`--check-cache` 在临时目录验证路径、私有目录权限、重复解析不覆盖文件、预览不创建目录和错误路径处理；不写真实用户缓存。`--check-guidance` 检查预算、临期、时效和极端倒计时；`--check-reader` 检查正常/异常输出、缺失解释器、超时强制回收、退出清理与拒绝后续任务。它们不会启动真实账号请求。
 
 ## 公开截图
 
@@ -52,14 +53,16 @@ python3 scripts/package_source.py --check
 
 | 入口 | 行为 |
 | --- | --- |
-| `python3 build.py` | 生成默认 `.build/Codex额度悬浮窗.app`，绑定当前解释器和源码目录缓存 |
-| `python3 build.py --output 路径.app` | 修改应用包输出位置；不修改缓存位置或复制 Python 环境 |
+| `python3 build.py` | 生成默认 `.build/Codex额度悬浮窗.app`，绑定当前解释器；缓存目录在运行时按当前用户定位 |
+| `python3 build.py --output 路径.app` | 修改应用包输出位置；桌面应用始终使用用户应用数据目录，不复制 Python 环境 |
 | `python3 quota.py usage.local.json` | 读取且校验当前账号缓存，输出展示 JSON；仍需可读的登录文件，不联网 |
 | `python3 quota.py usage.local.json --refresh` | 实际访问两个官方额度接口并更新缓存 |
 | `python3 updates.py version.local.json` | 读取版本缓存并校验当前安装，不联网 |
 | `python3 updates.py version.local.json --check` | 实际请求官方更新清单并更新版本缓存 |
 | `python3 scripts/package_source.py --check` | 验证公开清单和安全路径，只打印文件名 |
 | `python3 scripts/package_source.py` | 生成 `.build/codex-quota-widget-source.zip` |
+
+桌面应用使用 `~/Library/Application Support/CodexQuotaWidget/` 中的同名缓存。表中 CLI 命令显式传入文件路径，仍写到调用者指定的位置；这与桌面应用的默认存储分开。旧源码缓存不自动迁移。
 
 两个读取 CLI 为了让 GUI 始终能解析诊断，失败时也可能以退出码 0 输出带 `error` 的 JSON；不能仅凭进程退出码判断官方读取成功。直接运行它们会显示真实数据，请勿把输出粘贴到公开 Issue。源码包导出仅检查清单与文件路径，不扫描任意内容或 Git 历史。
 

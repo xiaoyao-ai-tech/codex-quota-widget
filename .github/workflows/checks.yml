@@ -28,4 +28,5 @@ jobs:
       - name: Swift calculation and process checks
         run: |
           .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-guidance
+          .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-cache
           .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-reader "$(command -v python3)"
