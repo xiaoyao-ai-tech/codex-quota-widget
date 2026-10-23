@@ -1,5 +1,51 @@
 import Cocoa
 
+// Resolve per-user state at runtime; never bind private caches to a source checkout.
+func quotaCacheURL(base: URL? = nil, create: Bool = true) throws -> URL {
+    let manager = FileManager.default
+    guard let support = base ?? manager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
+        throw CocoaError(.fileNoSuchFile)
+    }
+    let directory = support.appendingPathComponent("CodexQuotaWidget", isDirectory: true)
+    if create {
+        try manager.createDirectory(at: directory, withIntermediateDirectories: true,
+                                    attributes: [.posixPermissions: 0o700])
+    }
+    return directory.appendingPathComponent("usage.local.json")
+}
+
+func checkCacheLocation() throws {
+    let manager = FileManager.default
+    let fixture = manager.temporaryDirectory.appendingPathComponent("quota-cache-check-" + UUID().uuidString)
+    try manager.createDirectory(at: fixture, withIntermediateDirectories: true)
+    defer { try? manager.removeItem(at: fixture) }
+    let base = fixture.appendingPathComponent("Application Support")
+    let expected = base.appendingPathComponent("CodexQuotaWidget/usage.local.json")
+    let preview = try quotaCacheURL(base: base, create: false)
+    precondition(preview == expected)
+    precondition(!manager.fileExists(atPath: base.path))
+    let cache = try quotaCacheURL(base: base)
+    precondition(cache == expected)
+    let folder = cache.deletingLastPathComponent()
+    let attributes = try manager.attributesOfItem(atPath: folder.path)
+    precondition((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o700)
+    let sentinel = Data("existing cache".utf8)
+    try sentinel.write(to: cache)
+    let reused = try quotaCacheURL(base: base)
+    let preserved = try Data(contentsOf: cache)
+    let readonly = try quotaCacheURL(base: base, create: false)
+    precondition(reused == cache)
+    precondition(preserved == sentinel)
+    precondition(readonly == cache)
+    let blocked = fixture.appendingPathComponent("blocked")
+    try Data().write(to: blocked)
+    do {
+        _ = try quotaCacheURL(base: blocked)
+        preconditionFailure("A file cannot be used as the support directory")
+    } catch { /* Startup must report the failure rather than write beside the app. */ }
+    print("8 cache location checks passed (including offline preview and private directory)")
+}
+
 struct Quota: Decodable {
     let remaining: Double?
     let resetsAt: Double?
@@ -757,13 +803,26 @@ if args.contains("--check-guidance") {
     checkGuidance()
     exit(0)
 }
+if args.contains("--check-cache") {
+    try checkCacheLocation()
+    exit(0)
+}
 guard let python = bundle.object(forInfoDictionaryKey: "QuotaPython") as? String,
-      let cache = bundle.object(forInfoDictionaryKey: "QuotaCache") as? String,
       let resource = bundle.resourcePath else { fatalError("请使用 build.py 构建应用") }
 let app = NSApplication.shared
 if let index = args.firstIndex(of: "--preview-icon"), args.indices.contains(index + 1) {
     saveIconPreview(args[index + 1])
     exit(0)
+}
+let cache: String
+do {
+    cache = try quotaCacheURL(create: preview == nil).path
+} catch {
+    let alert = NSAlert()
+    alert.messageText = "无法创建额度缓存目录"
+    alert.informativeText = "请检查当前用户 Application Support 目录的写入权限后重新启动。"
+    alert.runModal()
+    exit(1)
 }
 let delegate = Delegate(python: python, cache: cache, engine: resource + "/quota.py", preview: preview)
 app.delegate = delegate

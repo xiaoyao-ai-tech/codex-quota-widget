@@ -2,7 +2,7 @@
 
 [English](README.md) | **简体中文**
 
-一个轻量的 Codex 额度桌面小工具，把剩余额度、重置时间和重置卡到期提醒放在桌面上。本 fork 在原版 macOS 界面之外增加了 Windows 界面。
+一个轻量的 Codex 额度桌面小工具，把剩余额度、重置时间和重置卡到期提醒放在桌面上。提供 macOS 原生界面和 Windows 界面。
 
 macOS 使用 Swift / Cocoa 界面，Windows 使用 Qt / 原生 Acrylic 毛玻璃界面；额度读取使用 Python 标准库，不依赖 CodexBar。
 
@@ -23,7 +23,7 @@ python -m pip install -r requirements-windows.txt
 
 Windows 入口优先读取 `CODEX_HOME/auth.json`，未设置时读取 `%USERPROFILE%/.codex/auth.json`；只读取登录数据，不更改登录状态。也可用 `python windows_widget.py --home "登录目录"` 指定目录。每分钟在隐藏的子进程读取额度，读取等待超过 35 秒会终止子进程；失败时只回读当前账号的缓存。
 
-`windows.local.json` 存窗口偏好，`usage.local.json` 存额度快照，都已被 Git 忽略。Windows 版本暂不提供托盘菜单或 Codex 版本更新提示。本文后面的 Swift 构建、菜单栏及版本检测说明适用于 macOS；Windows 无需执行这些步骤。更多说明见 [Windows 适配说明](docs/WINDOWS.md)。
+窗口偏好 `windows.local.json` 和额度快照 `usage.local.json` 位于 `%LOCALAPPDATA%/CodexQuotaWidget/`，不依赖源码位置，不导入旧源码缓存；权限沿用当前用户目录 ACL。Windows 版本暂不提供托盘菜单或 Codex 版本更新提示。本文后面的 Swift 构建、菜单栏及版本检测说明适用于 macOS；Windows 无需执行这些步骤。更多说明见 [Windows 适配说明](docs/WINDOWS.md)。
 
 演示模式只使用虚构数据，不读取登录或额度缓存，也不联网：
 
@@ -33,6 +33,8 @@ Windows 入口优先读取 `CODEX_HOME/auth.json`，未设置时读取 `%USERPRO
 
 ### Windows 界面截图
 
+截图使用虚构 demo 数据生成，不读取真实账号或缓存；预览不代表 Windows 原生毛玻璃效果。
+
 | 雾灰 | 深灰 | 暖杏 |
 | --- | --- | --- |
 | <img src="docs/images/windows-fog.png" alt="雾灰配色的 Windows 毛玻璃悬浮窗" width="240"> | <img src="docs/images/windows-graphite.png" alt="深灰配色的 Windows 毛玻璃悬浮窗" width="240"> | <img src="docs/images/windows-apricot.png" alt="暖杏配色的 Windows 毛玻璃悬浮窗" width="240"> |
@@ -41,7 +43,7 @@ Windows 入口优先读取 `CODEX_HOME/auth.json`，未设置时读取 `%USERPRO
 
 - 显示周期最长的 Codex 额度窗口，通常为周额度；显示剩余百分比、重置倒计时及 GMT+8 时间。
 - 根据剩余额度和距重置的天数，显示日均可用预算；这不是消耗速度或可用时长预测。
-- 显示可用重置卡数量和最早到期时间；macOS 不足 24 小时显示橙色，不足 3 小时显示红色；Windows 目前不足 24 小时显示橙色。
+- 显示可用重置卡数量和最早到期时间；macOS 不足 24 小时显示橙色，不足 3 小时显示红色；Windows 使用相同阈值。
 - 启动读取一次，之后每分钟刷新额度，每秒更新本地倒计时；支持手动刷新。
 - macOS 每小时检查 Codex 稳定版更新，有更新时显示圆点。只提示，不下载或安装更新；Windows 暂无版本更新提示。
 - 支持拖动、置顶，以及深灰、雾灰、暖杏三套配色；macOS 支持隐藏后从菜单栏恢复，Windows 支持最小化后从任务栏恢复。
@@ -72,7 +74,7 @@ open .build/Codex额度悬浮窗.app
 
 构建包位于 `.build/Codex额度悬浮窗.app`。也可在 Finder 按 `Command + Shift + G`，输入源码目录中的 `.build` 路径，再双击应用。
 
-**请保持源码目录及 Python 环境的位置不变。** 当前构建会绑定本机解释器和源码目录中的缓存路径；移动源码、删除 Python 环境后需要重新构建。生成的 `.app` 不是适合直接发给其他人的通用安装包，也尚未做开发者签名和公证。首次运行遇到系统拦截时请遵循 macOS 的安全提示，不需要全局关闭安全保护。
+**Python 环境的位置仍需保持不变。** 应用在运行时使用当前用户的 `~/Library/Application Support/CodexQuotaWidget/` 存放缓存，不再绑定源码目录；可以移动已构建的 `.app`。构建仍绑定本机 Python 解释器，如果删除或移动该环境（包括放在源码目录内的虚拟环境），需要重新构建。生成的 `.app` 不是适合直接发给其他人的通用安装包，也尚未做开发者签名和公证。首次运行遇到系统拦截时请遵循 macOS 的安全提示，不需要全局关闭安全保护。
 
 启动后可通过窗口按钮操作，或点击菜单栏的额度仪表图标恢复隐藏窗口、刷新、切换配色。隐藏不影响后台刷新；从菜单或窗口点击退出会停止定时器并回收读取进程。项目不会自动安装登录启动项。
 
@@ -91,7 +93,7 @@ open .build/Codex额度悬浮窗.app
 
 更新源码前先退出旧应用。macOS 在原目录更新源码并重新构建，再启动新应用；只更新源码不会自动替换应用包内的 Python 文件。Windows 更新源码后按需安装新的依赖，再重新启动。不要同时运行多个副本。
 
-卸载时先从菜单或窗口退出，再删除本工具的 `.app`、源码目录及其中的本地缓存即可。macOS 配色/窗口偏好存于用户偏好中，Windows 存于 `windows.local.json`；不要删除 Codex 的 `~/.codex` 登录目录。若曾自行设置登录启动，请同时移除对应启动项。
+卸载时先从菜单或窗口退出，再按需删除本工具的 `.app`、源码目录及各平台的本地状态目录。macOS 配色/窗口偏好存于用户偏好中，Windows 偏好与额度存于 `%LOCALAPPDATA%/CodexQuotaWidget/`，macOS 缓存存于 `~/Library/Application Support/CodexQuotaWidget/`，均可按需单独删除；不要删除 Codex 的 `~/.codex` 登录目录。若曾自行设置登录启动，请同时移除对应启动项。
 
 ## 数据与隐私
 
@@ -103,7 +105,7 @@ open .build/Codex额度悬浮窗.app
 - 缓存只存额度、时间、状态和账号摘要等必要信息。摘要仍属于账号关联信息，不应公开。
 - 不向项目作者发送遥测或使用数据。
 
-`usage.local.json`、`version.local.json`、`windows.local.json` 和 `.build/` 都是本地文件，已加入 Git 忽略规则。请不要上传整个工作目录或真实账号截图。
+macOS 应用的 `usage.local.json` 和 `version.local.json` 位于 `~/Library/Application Support/CodexQuotaWidget/`，新建目录权限为 0700、缓存文件为 0600。源码目录中的旧缓存会原样保留但不自动导入；升级后首次使用需联网刷新。旧 `*.local.json` 和 `.build/` 仍由 Git 忽略，CLI 手工指定的缓存路径不变。请不要上传真实缓存或账号截图。 Windows 的额度与偏好文件位于 `%LOCALAPPDATA%/CodexQuotaWidget/`，沿用用户目录 ACL，不导入旧源码缓存。
 
 ## 开发与验证
 
@@ -121,10 +123,11 @@ macOS：
 python3 -m unittest discover -s tests -v
 python3 build.py
 .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-guidance
+.build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-cache
 .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-reader "$(command -v python3)"
 ```
 
-Python 用例使用模拟响应和临时文件；两种 Swift 检查模式仅执行计算或可丢弃子进程，不访问真实账号或接口。GitHub Actions 执行 Windows 检查、macOS 编译和离线回归测试。未安装 Windows 可选界面依赖时，Qt 专用用例会跳过。
+Python 用例使用模拟响应和临时文件；Swift 检查模式仅执行计算、临时目录读写或可丢弃子进程，不访问真实账号或接口。GitHub Actions 执行 Windows 检查、macOS 编译和离线回归测试。未安装 Windows 可选界面依赖时，Qt 专用用例会跳过。
 
 项目结构、构建选项、CLI 语义和手工验证见 [开发说明](docs/DEVELOPMENT.md)。
 
@@ -161,6 +164,8 @@ Windows 使用 `python` 代替 `python3`。请解压 `.build/codex-quota-widget-
 
 欢迎提交问题和改进，见 [贡献指南](CONTRIBUTING.md)；安全问题见 [SECURITY.md](SECURITY.md)。
 
-当前仍为首次公开发布前的源码准备状态，尚未发布正式 GitHub Release。更新记录见 [CHANGELOG.md](CHANGELOG.md)，维护者发布前请按 [发布检查](docs/RELEASING.md) 核对。
+当前已公开源码，尚未发布正式 GitHub Release。更新记录见 [CHANGELOG.md](CHANGELOG.md)，维护者发布前请按 [发布检查](docs/RELEASING.md) 核对。
 
 本项目采用 [MIT 许可证](LICENSE)，允许使用、修改、分发和商用，需保留版权和许可声明。许可证仅覆盖本项目代码，不授予第三方产品商标或服务访问权限。
+
+Windows Qt 依赖保留自身许可证，见 [第三方依赖说明](THIRD_PARTY_NOTICES.md)；macOS 和 Windows `--classic` 不依赖 Qt。

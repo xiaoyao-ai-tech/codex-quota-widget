@@ -4,13 +4,12 @@ import ctypes
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import time
-import tkinter as tk
 from datetime import datetime, timedelta, timezone
 
 import quota
+from windows_runtime import InstanceLock, QuotaReader, state_directory, valid_snapshot
 
 ROOT = Path(__file__).resolve().parent
 THEMES = {
@@ -32,7 +31,11 @@ def countdown(seconds):
 def presentation(data, now):
     """Calculate display fields without guessing that a reset restored quota."""
     result = dict(percent="—", reset="等待额度数据", budget="", cards="重置卡：状态未知",
-                  status=data.get("error", "尚无数据"), urgent=False, remaining=0)
+                  status=data.get("error", "尚无数据") if isinstance(data, dict) else "额度数据格式无效",
+                  urgent=False, remaining=0, critical=False)
+    if not valid_snapshot(data):
+        result["status"] = "额度数据格式无效，请刷新"
+        return result
     if "remaining" not in data:
         return result
     remaining = data["remaining"]
@@ -41,7 +44,7 @@ def presentation(data, now):
     stale = age > 180 or age < -60 or bool(data.get("error")) or seconds <= 0
     result.update(percent=f"{remaining:.0f}%", remaining=remaining,
                   reset="等待刷新确认重置" if seconds <= 0 else f"距重置  {countdown(seconds)}")
-    result["reset"] += "\n" + datetime.fromtimestamp(data["resetsAt"], GMT8).strftime("%m月%d日 %H:%M GMT+8")
+    result["reset"] += "\n" + display_time(data["resetsAt"], "%m月%d日 %H:%M GMT+8")
     result["budget"] = ("历史额度 · 等待更新" if stale else
                         f"日均可用预算  {min(remaining, remaining / max(seconds / 86400, 1)):.1f}%")
     cards = data.get("creditExpiries")
@@ -50,15 +53,23 @@ def presentation(data, now):
         result["cards"] = (f"重置卡：{len(valid)} 张 · {countdown(valid[0] - now)} 后到期"
                            if valid else "重置卡：无可用卡")
         result["urgent"] = bool(valid and valid[0] - now < 86400)
+        result["critical"] = bool(valid and valid[0] - now < 10800)
     if data.get("creditError"):
         result["cards"] = "重置卡：状态未知"
-    updated = datetime.fromtimestamp(data["updatedAt"], GMT8).strftime("%H:%M:%S")
+    updated = display_time(data["updatedAt"], "%H:%M:%S")
     result["status"] = data.get("error") or data.get("creditError") or ("数据已过期" if stale else f"更新于 {updated} · 每分钟刷新")
     return result
 
 
+def display_time(timestamp, pattern):
+    try:
+        return datetime.fromtimestamp(timestamp, GMT8).strftime(pattern)
+    except (ValueError, OverflowError, OSError):
+        return "时间超出系统范围"
+
+
 def reader_command(cache, home):
-    # pythonw has no stdout; use python for the hidden, piped reader child.
+    # pythonw has no stdout; use python for the hidden reader child.
     executable = Path(sys.executable)
     if executable.name.lower() == "pythonw.exe":
         executable = executable.with_name("python.exe")
@@ -67,28 +78,23 @@ def reader_command(cache, home):
 
 class Widget:
     def __init__(self, root, home, demo=False):
+        import tkinter as tk
+        self.tk = tk
         self.root, self.home, self.demo = root, home, demo
-        self.cache = ROOT / "usage.local.json"
-        self.preferences = ROOT / "windows.local.json"
-        self.process = None
+        folder = state_directory(create=not demo)
+        self.cache = folder / "usage.local.json"
+        self.preferences = folder / "windows.local.json"
+        self.reader = None
         self.next_refresh = 0
         self.data = {}
         self.theme = "graphite"
         self.pinned = True
         self.closed = False
-        self.mutex = None
-        if os.name == "nt" and not demo:
-            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-            kernel.CreateMutexW.restype = ctypes.c_void_p
-            self.mutex = kernel.CreateMutexW(None, False, "Local\\CodexQuotaWidgetWindows")
-            if not self.mutex:
-                raise OSError("无法创建应用实例锁")
-            if ctypes.get_last_error() == 183:
-                kernel.CloseHandle.argtypes = [ctypes.c_void_p]
-                kernel.CloseHandle(self.mutex)
-                root.destroy()
-                self.closed = True
-                return
+        self.instance = InstanceLock(enabled=not demo)
+        if self.instance.duplicate:
+            root.destroy()
+            self.closed = True
+            return
         root.title("Codex 额度悬浮窗" + (" · 演示" if demo else ""))
         root.resizable(False, False)
         # Tk scales point-size fonts at high DPI, but geometry/padding use pixels.
@@ -146,7 +152,7 @@ class Widget:
         self.tick()
 
     def button(self, text, command):
-        button = tk.Button(self.controls, text=text, command=command, relief="flat", borderwidth=0,
+        button = self.tk.Button(self.controls, text=text, command=command, relief="flat", borderwidth=0,
                            padx=10, pady=4, cursor="hand2", font=("Microsoft YaHei UI", 9))
         button.pack(side="left", padx=(0, 5))
         return button
@@ -174,53 +180,34 @@ class Widget:
         self.pin_button.configure(text="置顶 ✓" if self.pinned else "置顶")
 
     def refresh(self):
-        if self.process or self.demo:
+        if self.reader or self.demo or self.closed:
             return
         self.next_refresh = time.monotonic() + 60
         try:
-            self.process = subprocess.Popen(reader_command(self.cache, self.home), stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            self.started = time.monotonic()
+            self.reader = QuotaReader(reader_command(self.cache, self.home), self.cache, self.home)
             self.refresh_button.configure(text="读取中…", state="disabled")
         except OSError:
-            self.data = {"error": "无法启动额度读取进程，请检查 Python 安装"}
+            self.data = {"error": "无法启动额度读取进程，请检查 Python 安装和数据目录权限"}
 
     def poll_reader(self):
-        if not self.process:
-            return
-        if self.process.poll() is None and time.monotonic() - self.started < 35:
-            return
-        timed_out = self.process.poll() is None
-        if timed_out:
-            self.process.kill()
-        output, _ = self.process.communicate()
-        self.process = None
-        self.refresh_button.configure(text="刷新", state="normal")
-        try:
-            if timed_out:
-                raise ValueError()
-            value = json.loads(output.decode("utf-8"))
-            if not isinstance(value, dict):
-                raise ValueError()
-            self.data = value
-        except (ValueError, UnicodeError):
-            # Revalidate identity before retaining historical data after a failed reader.
-            try:
-                self.data = quota.read_cache(self.cache, self.home)
-            except quota.QuotaError:
-                self.data = {}
-            self.data["error"] = "读取超时，请重试" if timed_out else "读取失败，请重试"
+        if self.reader is not None:
+            result = self.reader.poll()
+            if result is not None:
+                self.reader = None
+                self.data = result
+                self.refresh_button.configure(text="刷新", state="normal")
 
     def tick(self):
         self.poll_reader()
         if not self.demo and time.monotonic() >= self.next_refresh:
             self.refresh()
+        if self.demo:
+            self.data["updatedAt"] = time.time()
         value = presentation(self.data, time.time())
         self.percent.configure(text=value["percent"])
         self.reset.configure(text=value["reset"])
         self.budget.configure(text=value["budget"])
-        self.cards.configure(text=value["cards"], fg="#e59a37" if value["urgent"] else THEMES[self.theme][1])
+        self.cards.configure(text=value["cards"], fg="#d34b4b" if value["critical"] else "#b66c13" if value["urgent"] else THEMES[self.theme][1])
         self.status.configure(text="虚构演示数据 · 不读取账号或联网" if self.demo else value["status"])
         self.bar.delete("all")
         width = max(1, self.bar.winfo_width())
@@ -229,18 +216,25 @@ class Widget:
         self.root.after(250, self.tick)
 
     def close(self):
-        if self.process:
-            self.process.kill()
-            self.process.communicate()
+        if self.closed:
+            return
+        self.closed = True
+        if self.reader is not None:
+            self.reader.close()
+            self.reader = None
         if not self.demo:
             try:
-                quota.save_cache(self.preferences, dict(theme=self.theme, x=self.root.winfo_x(), y=self.root.winfo_y()))
+                prefs = json.loads(self.preferences.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                prefs = {}
+            if not isinstance(prefs, dict):
+                prefs = {}
+            prefs.update(theme=self.theme, x=self.root.winfo_x(), y=self.root.winfo_y())
+            try:
+                quota.save_cache(self.preferences, prefs)
             except OSError:
                 pass
-        if self.mutex:
-            kernel = ctypes.WinDLL("kernel32")
-            kernel.CloseHandle.argtypes = [ctypes.c_void_p]
-            kernel.CloseHandle(self.mutex)
+        self.instance.close()
         self.root.destroy()
 
 
@@ -251,14 +245,25 @@ def main():
     parser.add_argument("--home", type=Path, default=Path(os.environ.get("CODEX_HOME") or Path.home() / ".codex"))
     args = parser.parse_args()
     if not args.classic:
-        from windows_glass import run
-        run(args.home, args.demo)
+        try:
+            from windows_glass import run
+        except ImportError as exc:
+            raise SystemExit("请安装 Qt：python -m pip install -r requirements-windows.txt；或使用 --classic") from exc
+        run(args.home.expanduser().resolve(), args.demo)
         return
+    import tkinter as tk
     if os.name == "nt":
-        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        try:
+            ctypes.windll.shcore.SetProcessDpiAwareness(1)
+        except (OSError, AttributeError):
+            pass
     root = tk.Tk()
-    Widget(root, args.home, args.demo)
-    root.mainloop()
+    widget = Widget(root, args.home.expanduser().resolve(), args.demo)
+    try:
+        if not widget.closed:
+            root.mainloop()
+    finally:
+        widget.close()
 
 
 if __name__ == "__main__":

@@ -38,3 +38,7 @@ docs/images/graphite.png
 docs/images/windows-fog.png
 docs/images/windows-graphite.png
 docs/images/windows-apricot.png
+windows_runtime.py
+tests/test_windows_runtime.py
+THIRD_PARTY_NOTICES.md
+scripts/windows_preview.py

@@ -27,6 +27,8 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Check public file list
         run: python scripts/package_source.py --check
+      - name: Native Qt demo and window smoke checks
+        run: python scripts/windows_preview.py
   checks:
     runs-on: macos-latest
     timeout-minutes: 15
@@ -46,4 +48,5 @@ jobs:
       - name: Swift calculation and process checks
         run: |
           .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-guidance
+          .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-cache
           .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-reader "$(command -v python3)"

@@ -4,7 +4,6 @@ from ctypes import wintypes
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 import time
 
@@ -13,7 +12,8 @@ from PySide6.QtGui import QColor, QFont, QIcon, QKeySequence, QPainter, QPen, QP
 from PySide6.QtWidgets import QApplication, QHBoxLayout, QLabel, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 import quota
-from windows_widget import ROOT, presentation, reader_command
+from windows_widget import presentation, reader_command
+from windows_runtime import InstanceLock, QuotaReader, state_directory
 
 PALETTES = {
     "graphite": ("#151d28", "#f4f7fc", "#9caabc", "#9dc8ff", 0xB5281D15),
@@ -99,10 +99,15 @@ class GlassWidget(QWidget):
     def __init__(self, home, demo=False):
         super().__init__()
         self.home, self.demo = home, demo
-        self.cache, self.preferences = ROOT / "usage.local.json", ROOT / "windows.local.json"
+        folder = state_directory(create=not demo)
+        self.cache, self.preferences = folder / "usage.local.json", folder / "windows.local.json"
         self.theme, self.pinned, self.material = "graphite", True, False
-        self.data, self.process, self.next_refresh = {}, None, 0
-        self.mutex = None
+        self.data, self.reader, self.next_refresh = {}, None, 0
+        self.instance = InstanceLock(enabled=not demo)
+        self.duplicate = self.instance.duplicate
+        self.closed = False
+        if self.duplicate:
+            return
         self.setWindowTitle("Codex 额度悬浮窗" + (" · 演示" if demo else ""))
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window | Qt.WindowType.WindowStaysOnTopHint)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
@@ -122,17 +127,6 @@ class GlassWidget(QWidget):
                             break
             except (OSError, ValueError, TypeError, AttributeError):
                 pass
-            if os.name == "nt":
-                kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-                kernel.CreateMutexW.restype = ctypes.c_void_p
-                self.mutex = kernel.CreateMutexW(None, False, "Local\\CodexQuotaWidgetWindows")
-                if not self.mutex:
-                    raise OSError("无法创建应用实例锁")
-                if ctypes.get_last_error() == 183:
-                    self.release_mutex()
-                    self.duplicate = True
-                    return
-        self.duplicate = False
         self.build_ui()
         for keys, callback in (("F5", self.refresh), ("Ctrl+T", self.cycle_theme),
                                ("Ctrl+P", self.toggle_pin), ("Ctrl+M", self.showMinimized),
@@ -278,7 +272,7 @@ class GlassWidget(QWidget):
         p.setRenderHint(QPainter.RenderHint.Antialiasing)
         rect = QRectF(self.rect()).adjusted(.5, .5, -.5, -.5)
         fill = QColor(PALETTES[self.theme][0])
-        fill.setAlpha(38 if self.material else 248)
+        fill.setAlpha(38 if self.material else 255)
         p.setBrush(fill)
         p.setPen(QPen(QColor(255, 255, 255, 32 if self.theme == "graphite" else 150), 1))
         p.drawRoundedRect(rect, 14, 14)
@@ -300,46 +294,28 @@ class GlassWidget(QWidget):
         self.pinned = not self.pinned
         self.setWindowFlag(Qt.WindowType.WindowStaysOnTopHint, self.pinned)
         self.show()
-        self.buttons[0].setToolTip(("取消置顶" if self.pinned else "置顶") + " · Ctrl+P")
+        tip = ("取消置顶" if self.pinned else "置顶") + " · Ctrl+P"
+        self.buttons[0].setToolTip(tip)
+        self.buttons[0].setAccessibleName(tip)
         self.apply_theme()
 
     def refresh(self):
-        if self.process or self.demo:
+        if self.reader or self.demo or self.closed:
             return
         self.next_refresh = time.monotonic() + 60
         try:
-            self.process = subprocess.Popen(reader_command(self.cache, self.home), stdout=subprocess.PIPE,
-                                            stderr=subprocess.PIPE, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                                            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-            self.started = time.monotonic()
+            self.reader = QuotaReader(reader_command(self.cache, self.home), self.cache, self.home)
             self.refresh_button.setEnabled(False)
         except OSError:
-            self.data = {"error": "无法启动读取进程"}
+            self.data = {"error": "无法启动读取进程，请检查 Python 和数据目录权限"}
 
     def poll_reader(self):
-        if not self.process:
-            return
-        if self.process.poll() is None and time.monotonic() - self.started < 35:
-            return
-        timed_out = self.process.poll() is None
-        if timed_out:
-            self.process.kill()
-        output, _ = self.process.communicate()
-        self.process = None
-        self.refresh_button.setEnabled(True)
-        try:
-            if timed_out:
-                raise ValueError()
-            value = json.loads(output.decode("utf-8"))
-            if not isinstance(value, dict):
-                raise ValueError()
-            self.data = value
-        except (ValueError, UnicodeError):
-            try:
-                self.data = quota.read_cache(self.cache, self.home)
-            except quota.QuotaError:
-                self.data = {}
-            self.data["error"] = "读取超时，请重试" if timed_out else "读取失败，请重试"
+        if self.reader is not None:
+            result = self.reader.poll()
+            if result is not None:
+                self.reader = None
+                self.data = result
+                self.refresh_button.setEnabled(True)
 
     def tick(self):
         self.poll_reader()
@@ -357,27 +333,23 @@ class GlassWidget(QWidget):
         self.budget.setText(budget.removeprefix("日均可用预算  ") if budget.startswith("日均") else "—")
         self.budget.setToolTip(budget)
         self.cards.setText(value["cards"].replace("重置卡：", "重置卡  ·  "))
-        warning = "#e9b16e" if self.theme == "graphite" else "#925216"
+        warning = ("#ff8b8b" if self.theme == "graphite" else "#b32626") if value["critical"] else ("#e9b16e" if self.theme == "graphite" else "#925216")
         self.cards.setStyleSheet(f"color: {warning};" if value["urgent"] else "")
         status = "演示数据 · 离线预览" if self.demo else value["status"]
-        if self.process:
+        if self.reader:
             status = "正在刷新…"
         self.status.setText(self.status.fontMetrics().elidedText(status, Qt.TextElideMode.ElideRight, 260))
         self.status.setToolTip(status)
 
-    def release_mutex(self):
-        if self.mutex:
-            kernel = ctypes.WinDLL("kernel32")
-            kernel.CloseHandle.argtypes = [ctypes.c_void_p]
-            kernel.CloseHandle(self.mutex)
-            self.mutex = None
-
     def closeEvent(self, event):
+        if self.closed or self.duplicate:
+            event.accept()
+            return
+        self.closed = True
         self.timer.stop()
-        if self.process:
-            self.process.kill()
-            self.process.communicate()
-            self.process = None
+        if self.reader is not None:
+            self.reader.close()
+            self.reader = None
         if not self.demo:
             try:
                 prefs = json.loads(self.preferences.read_text(encoding="utf-8")) if self.preferences.exists() else {}
@@ -390,7 +362,7 @@ class GlassWidget(QWidget):
                 quota.save_cache(self.preferences, prefs)
             except OSError:
                 pass
-        self.release_mutex()
+        self.instance.close()
         event.accept()
 
 
@@ -402,7 +374,10 @@ def run(home, demo=False):
     if widget.duplicate:
         return
     widget.show()
-    app.exec()
+    try:
+        app.exec()
+    finally:
+        widget.close()
 
 
 if __name__ == "__main__":

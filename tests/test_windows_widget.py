@@ -1,5 +1,6 @@
 """Offline Windows display and reader lifecycle regressions; synthetic data only."""
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -59,34 +60,56 @@ class WindowsTests(unittest.TestCase):
             self.assertNotIn("accountHash", value)
             self.assertNotIn(b"SYNTHETIC", result.stdout)
 
-    def test_reader_timeout_kills_and_revalidates_account(self):
-        widget = Widget.__new__(Widget)
-        widget.process = MagicMock()
-        process = widget.process
-        process.poll.return_value = None
-        process.communicate.return_value = (b"", b"")
-        widget.started = 0
-        widget.cache, widget.home = Path("usage.local.json"), Path("synthetic-home")
-        widget.refresh_button = MagicMock()
-        widget.data = self.data()
-        with patch("windows_widget.time.monotonic", return_value=36), \
-             patch("windows_widget.quota.read_cache", side_effect=QuotaError("account changed")):
-            widget.poll_reader()
-        process.kill.assert_called_once()
-        process.communicate.assert_called_once()
-        self.assertIsNone(widget.process)
-        self.assertNotIn("remaining", widget.data)
-        self.assertIn("超时", widget.data["error"])
+    def test_invalid_display_payload_does_not_crash_timer(self):
+        for value in (None, [], {"remaining": None}, {"remaining": 4},
+                      dict(self.data(), remaining=float("nan")),
+                      dict(self.data(), creditExpiries=["bad"]),
+                      dict(self.data(), error=[])):
+            with self.subTest(value=value):
+                self.assertEqual(presentation(value, 1800000000)["percent"], "—")
+        value = dict(self.data(), resetsAt=253402300799)
+        self.assertIn("60%", presentation(value, 1800000000)["percent"])
 
-    def test_closing_reaps_active_reader(self):
+    def test_card_thresholds(self):
+        for seconds, urgent, critical in ((86400, False, False), (10800, True, False), (10799, True, True)):
+            value = dict(self.data(), creditExpiries=[1800000000 + seconds])
+            display = presentation(value, 1800000000)
+            self.assertEqual((display["urgent"], display["critical"]), (urgent, critical))
+
+    def test_closing_reaps_reader_once(self):
         widget = Widget.__new__(Widget)
-        widget.process = MagicMock()
-        widget.root = MagicMock()
-        widget.demo, widget.mutex = True, None
+        widget.reader = MagicMock()
+        reader = widget.reader
+        widget.root, widget.instance = MagicMock(), MagicMock()
+        widget.demo, widget.closed = True, False
         widget.close()
-        widget.process.kill.assert_called_once()
-        widget.process.communicate.assert_called_once()
+        widget.close()
+        reader.close.assert_called_once()
+        self.assertIsNone(widget.reader)
         widget.root.destroy.assert_called_once()
+
+
+@unittest.skipUnless(os.name == "nt", "Native Tk smoke test requires Windows")
+class TkSmokeTests(unittest.TestCase):
+    def test_demo_controls_and_exit_without_private_state(self):
+        import tkinter as tk
+        with tempfile.TemporaryDirectory() as folder, \
+             patch("windows_widget.state_directory", return_value=Path(folder)), \
+             patch("windows_widget.quota.auth", side_effect=AssertionError("No login in demo")):
+            root = tk.Tk()
+            widget = Widget(root, Path("synthetic-home"), demo=True)
+            try:
+                root.update()
+                widget.cycle_theme()
+                widget.toggle_pin()
+                root.iconify()
+                root.update()
+                root.deiconify()
+                root.update()
+                self.assertIsNone(widget.reader)
+                self.assertEqual(list(Path(folder).iterdir()), [])
+            finally:
+                widget.close()
 
 
 if __name__ == "__main__":

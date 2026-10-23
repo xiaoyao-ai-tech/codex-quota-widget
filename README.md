@@ -2,7 +2,7 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-A lightweight desktop widget for Codex quota, reset times, and expiring reset credits. This fork adds a Windows interface alongside the original macOS app.
+A lightweight desktop widget for Codex quota, reset times, and expiring reset credits. Includes native macOS and Windows interfaces.
 
 The macOS interface uses Swift / Cocoa; Windows uses Qt with native Acrylic glass. Quota requests use the Python standard library, with no CodexBar dependency.
 
@@ -25,7 +25,7 @@ The window opens pinned, with rounded corners, a native Acrylic background, and 
 
 The Windows launcher reads `CODEX_HOME/auth.json` when `CODEX_HOME` is set, otherwise `%USERPROFILE%/.codex/auth.json`. It only reads login data. To use another directory, run `python windows_widget.py --home "login-directory"`. A hidden subprocess refreshes quota every minute and is terminated after a 35-second timeout. Failed reads may fall back only to a cache verified for the current account.
 
-Window preferences are stored in `windows.local.json`; quota snapshots are stored in `usage.local.json`. Both are ignored by Git. Windows currently has no system tray menu or Codex update indicator. The Swift build, menu bar, and update detection instructions below apply to macOS. See [Windows notes](docs/WINDOWS.md) (in Chinese) for details.
+Windows preferences (`windows.local.json`) and quota snapshots (`usage.local.json`) are stored in `%LOCALAPPDATA%/CodexQuotaWidget/`, independent of the source directory. Old source-directory caches are not imported automatically. Windows permissions inherit the user directory ACL. Both are ignored by Git. Windows currently has no system tray menu or Codex update indicator. The Swift build, menu bar, and update detection instructions below apply to macOS. See [Windows notes](docs/WINDOWS.md) (in Chinese) for details.
 
 Demo mode uses synthetic data without reading login files or quota caches, or making network requests:
 
@@ -35,6 +35,8 @@ Demo mode uses synthetic data without reading login files or quota caches, or ma
 
 ### Windows screenshots
 
+Generated from synthetic demo data; no live account or cache is used. These previews do not demonstrate native Acrylic rendering.
+
 | Fog | Graphite | Apricot |
 | --- | --- | --- |
 | <img src="docs/images/windows-fog.png" alt="Windows Acrylic widget in the fog theme" width="240"> | <img src="docs/images/windows-graphite.png" alt="Windows Acrylic widget in the graphite theme" width="240"> | <img src="docs/images/windows-apricot.png" alt="Windows Acrylic widget in the apricot theme" width="240"> |
@@ -43,7 +45,7 @@ Demo mode uses synthetic data without reading login files or quota caches, or ma
 
 - Shows the longest Codex quota window, usually weekly, with the remaining percentage, reset countdown, and reset time in GMT+8.
 - Calculates a daily quota budget from the remaining percentage and time until reset. This is not a consumption-rate or runtime prediction.
-- Shows available reset credits and the earliest expiration. macOS uses orange below 24 hours and red below 3 hours; Windows currently uses orange below 24 hours.
+- Shows available reset credits and the earliest expiration. macOS uses orange below 24 hours and red below 3 hours; both Windows interfaces use the same thresholds.
 - Reads on startup, refreshes quota every minute, and updates the local countdown automatically. Manual refresh is supported.
 - On macOS, checks for stable Codex updates hourly and displays a dot when one is available. It does not download or install updates.
 - Supports dragging, pinning, and three themes: graphite, fog, and apricot. macOS restores hidden windows from the menu bar; Windows restores minimized windows from the taskbar.
@@ -74,7 +76,7 @@ The build script uses the Python interpreter running it. If `python3` is too old
 
 The app bundle is created at `.build/Codex额度悬浮窗.app`. You can also press Command+Shift+G in Finder, enter the source directory's `.build` path, and open the app.
 
-**Keep the source directory and Python environment in place.** The build binds to the local interpreter and cache paths in the source directory. Rebuild after moving the source or deleting the Python environment. The generated `.app` is not a portable installer and has not been developer-signed or notarized. Follow normal macOS security prompts on first launch; do not disable system security globally.
+**Keep the Python environment in place.** The macOS app resolves its cache at runtime in `~/Library/Application Support/CodexQuotaWidget/`, so the built `.app` can be moved. Rebuild if the bound Python environment is moved or deleted, including a virtual environment inside the source directory. The generated `.app` is not a portable installer and has not been developer-signed or notarized. Follow normal macOS security prompts on first launch; do not disable system security globally.
 
 Use the window buttons or the quota gauge icon in the menu bar to restore the window, refresh data, or switch themes. Hiding the window does not stop background refreshes. Quitting stops timers and reaps reader subprocesses. The project does not automatically install a login item.
 
@@ -93,7 +95,7 @@ See [support and known limitations](docs/SUPPORT.md) (in Chinese) for detailed b
 
 Quit the running app before updating the source. On macOS, rebuild in the same directory and launch the new app; updating source files does not replace the Python files inside an existing app bundle. On Windows, install any changed requirements and restart the launcher. Avoid running multiple copies.
 
-To uninstall, quit first, then remove the widget's app bundle, source directory, and local caches. macOS theme and position preferences are stored in the user's application preferences; Windows uses `windows.local.json`. Do not delete the Codex `~/.codex` login directory. If you manually configured startup at login, remove that entry as well.
+To uninstall, quit first, then remove the widget's app bundle and source directory as needed. Remove macOS caches from `~/Library/Application Support/CodexQuotaWidget/` or Windows state from `%LOCALAPPDATA%/CodexQuotaWidget/` separately. macOS theme and position preferences are stored in the user's application preferences; Windows uses `windows.local.json`. Do not delete the Codex `~/.codex` login directory. If you manually configured startup at login, remove that entry as well.
 
 ## Data and privacy
 
@@ -105,7 +107,7 @@ See [PRIVACY.md](PRIVACY.md) (in Chinese) for the full policy. Key behaviors:
 - Caches contain only necessary quota, time, status, and account-hash fields. Account hashes are still account-related information and should not be published.
 - Sends no telemetry or usage data to the project author.
 
-`usage.local.json`, `version.local.json`, `windows.local.json`, and `.build/` are local artifacts ignored by Git. Do not upload your entire working directory or screenshots of real account data.
+macOS uses Application Support (new directory 0700; cache files 0600); Windows uses Local AppData with inherited Windows ACLs. Old source caches are preserved but not imported; the first run needs a successful refresh. CLI paths remain explicit. Old `*.local.json` files and `.build/` are ignored by Git. Do not upload your entire working directory or screenshots of real account data.
 
 ## Development and validation
 
@@ -123,10 +125,11 @@ macOS:
 python3 -m unittest discover -s tests -v
 python3 build.py
 .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-guidance
+.build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-cache
 .build/Codex额度悬浮窗.app/Contents/MacOS/CodexQuotaWidget --check-reader "$(command -v python3)"
 ```
 
-Python tests use mocked responses and temporary files. Swift check modes perform calculations or launch disposable subprocesses without accessing real accounts or endpoints. GitHub Actions runs Windows checks and macOS compilation with offline regression tests. Qt-specific tests are skipped when the optional Windows UI dependency is not installed.
+Python tests use mocked responses and temporary files. Swift check modes perform calculations, temporary-directory checks, or launch disposable subprocesses without accessing real accounts or endpoints. GitHub Actions runs Windows checks and macOS compilation with offline regression tests. Qt-specific tests are skipped when the optional Windows UI dependency is not installed.
 
 See [development notes](docs/DEVELOPMENT.md) (in Chinese) for project structure, build options, CLI behavior, and manual checks.
 
@@ -163,6 +166,8 @@ On Windows, use `python` instead of `python3`. Extract `.build/codex-quota-widge
 
 Issues and improvements are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md); report security issues as described in [SECURITY.md](SECURITY.md). Both documents are in Chinese.
 
-The project is still in source-release preparation and has no formal GitHub Release. See [CHANGELOG.md](CHANGELOG.md) for changes and the [release checklist](docs/RELEASING.md) before publishing.
+Source is public; there is no formal GitHub Release. See [CHANGELOG.md](CHANGELOG.md) for changes and the [release checklist](docs/RELEASING.md) before publishing.
 
 Licensed under the [MIT License](LICENSE), allowing use, modification, distribution, and commercial use with the copyright and license notice preserved. The license covers this project's code only; it grants no third-party trademark rights or service access.
+
+Windows Qt dependencies retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md). macOS and Windows `--classic` do not require Qt.
